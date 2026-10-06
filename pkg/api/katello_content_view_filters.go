@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/terraform-coop/terraform-provider-foreman/foreman/utils"
+	"github.com/ahmet2mir/foremango/pkg/utils"
 	"net/http"
 )
 
