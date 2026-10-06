@@ -11,12 +11,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/HanseMerkur/terraform-provider-utils/log"
 	"github.com/dpotapov/go-spnego"
 	"github.com/ahmet2mir/foremango/pkg/utils"
 
 	cleanhttp "github.com/hashicorp/go-cleanhttp"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
 const (
@@ -202,7 +200,7 @@ func ToKV(m map[string]interface{}) []ForemanKVParameter {
 		case map[string]interface{}:
 			jsonValue, err := json.Marshal(v)
 			if err != nil {
-				log.Errorf("Error marshalling JSON for %s: %v", key, err)
+				utils.Errorf("Error marshalling JSON for %s: %v", key, err)
 				continue
 			}
 			ret = append(ret, ForemanKVParameter{Name: key, Value: json.RawMessage(jsonValue)})
@@ -219,7 +217,7 @@ func ToKV(m map[string]interface{}) []ForemanKVParameter {
 // the API gateway.
 func NewClient(s Server, c ClientCredentials, cfg ClientConfig) *Client {
 	utils.TraceFunctionCall()
-	log.Debugf(
+	utils.Debugf(
 		"Server: [%+v], "+
 			"ClientConfig: [%+v]",
 		s,
@@ -289,14 +287,14 @@ func NewClient(s Server, c ClientCredentials, cfg ClientConfig) *Client {
 //	Functions exactly like net/http/NewRequestWithContext()
 func (client *Client) NewRequestWithContext(ctx context.Context, method string, endpoint string, body io.Reader) (*http.Request, error) {
 	utils.TraceFunctionCall()
-	log.Debugf(
+	utils.Debugf(
 		"method: [%s], endpoint: [%s]",
 		method,
 		endpoint,
 	)
 
 	if !isValidRequestMethod(method) {
-		log.Errorf("Invalid HTTP request method: [%s]\n", method)
+		utils.Errorf("Invalid HTTP request method: [%s]\n", method)
 		return nil, fmt.Errorf("Invalid HTTP request method: [%s]", method)
 	}
 
@@ -323,7 +321,7 @@ func (client *Client) NewRequestWithContext(ctx context.Context, method string, 
 		version_append = "version=" + FOREMAN_API_VERSION
 	}
 
-	log.Debugf(
+	utils.Debugf(
 		"reqURL: [%s]\n",
 		reqURL.String(),
 	)
@@ -336,7 +334,7 @@ func (client *Client) NewRequestWithContext(ctx context.Context, method string, 
 		body,
 	)
 	if reqErr != nil {
-		log.Errorf(
+		utils.Errorf(
 			"Failed to construct a new HTTP request\n"+
 				"  Error: %s",
 			reqErr.Error(),
@@ -344,7 +342,7 @@ func (client *Client) NewRequestWithContext(ctx context.Context, method string, 
 		return req, reqErr
 	}
 	// Add common meta-data and header information for the request
-	req.Header.Add("User-Agent", "terraform-provider-foreman")
+	req.Header.Add("User-Agent", "foremango")
 	req.Header.Add("Accept", "application/json,"+version_append)
 	req.Header.Add("Content-Type", "application/json")
 	req.SetBasicAuth(client.credentials.Username, client.credentials.Password)
@@ -398,14 +396,14 @@ func (client *Client) Send(request *http.Request) (int, []byte, error) {
 	emptySlice := []byte{}
 
 	if request == nil {
-		log.Errorf("Client trying to send a nil request")
+		utils.Errorf("Client trying to send a nil request")
 		return -1, emptySlice, fmt.Errorf("Client trying to send a nil request")
 	}
 
 	// Send the request to the server
 	resp, respErr := client.httpClient.Do(request)
 	if respErr != nil {
-		log.Errorf(
+		utils.Errorf(
 			"Error encountered when sending HTTP request to server\n"+
 				"  Error: %s",
 			respErr.Error(),
@@ -420,7 +418,7 @@ func (client *Client) Send(request *http.Request) (int, []byte, error) {
 	// Read the server's response
 	respBody, readErr := ioutil.ReadAll(resp.Body)
 	if readErr != nil {
-		log.Errorf(
+		utils.Errorf(
 			"Error encountered when reading HTTP response from server\n"+
 				"  Error: %s",
 			readErr.Error(),
@@ -444,7 +442,7 @@ func (client *Client) SendAndParse(req *http.Request, obj interface{}) error {
 		return sendErr
 	}
 
-	log.Debugf(
+	utils.Debugf(
 		"server response:{\n"+
 			"  endpoint:   [%s]\n"+
 			"  method:     [%s]\n"+
@@ -467,10 +465,10 @@ func (client *Client) SendAndParse(req *http.Request, obj interface{}) error {
 		if err != nil {
 			return err
 		}
-		log.Debugf("foremanAsyncTask asyncTask: %+v", asyncTask)
+		utils.Debugf("foremanAsyncTask asyncTask: %+v", asyncTask)
 
 		if asyncTask.Pending {
-			log.Debugf("KatelloResponse is pending")
+			utils.Debugf("KatelloResponse is pending")
 			finishedTask, err := client.waitForKatelloAsyncTask(asyncTask.Id)
 			if err != nil {
 				return err
@@ -517,16 +515,12 @@ func (client *Client) SendAndParse(req *http.Request, obj interface{}) error {
 	return nil
 }
 
-// Taken from terraform-openstack-provider
-// CheckDeleted checks the error to see if it's a 404 (Not Found) and, if so,
-// sets the resource ID to the empty string instead of throwing an error.
-func CheckDeleted(d *schema.ResourceData, err error) error {
-	if httpError, ok := err.(HTTPError); ok && httpError.StatusCode == 404 {
-		d.SetId("")
-		return nil
-	}
-
-	return err
+// IsNotFound reports whether err is an HTTPError for a 404 (Not Found)
+// response. Useful for callers that want to treat a missing remote object
+// as "already gone" rather than as a hard error.
+func IsNotFound(err error) bool {
+	httpError, ok := err.(HTTPError)
+	return ok && httpError.StatusCode == 404
 }
 
 // wrapParameter wraps the given parameters as an object of its own name
@@ -574,7 +568,7 @@ func (client *Client) WrapJSONWithTaxonomy(name interface{}, item interface{}) (
 	if client.clientConfig.LocationID >= 0 && client.clientConfig.OrganizationID >= 0 {
 		wrapped["location_id"] = client.clientConfig.LocationID
 		wrapped["organization_id"] = client.clientConfig.OrganizationID
-		log.Debugf("client.go#WrapJSONWithTaxonomy: item %+v", wrapped)
+		utils.Debugf("client.go#WrapJSONWithTaxonomy: item %+v", wrapped)
 	}
 
 	return json.Marshal(wrapped)

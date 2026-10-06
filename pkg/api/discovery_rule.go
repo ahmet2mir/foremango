@@ -9,7 +9,7 @@ import (
 	"path"
 	"strconv"
 
-	"github.com/HanseMerkur/terraform-provider-utils/log"
+	log "github.com/ahmet2mir/foremango/pkg/utils"
 )
 
 const (

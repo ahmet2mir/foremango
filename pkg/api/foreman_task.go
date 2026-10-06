@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/HanseMerkur/terraform-provider-utils/log"
+	log "github.com/ahmet2mir/foremango/pkg/utils"
 	"net/http"
 	"time"
 )

@@ -11,7 +11,7 @@ import (
 	"reflect"
 	"testing"
 
-	logger "github.com/HanseMerkur/terraform-provider-utils/log"
+	logger "github.com/ahmet2mir/foremango/pkg/utils"
 )
 
 // ----------------------------------------------------------------------------
@@ -285,7 +285,7 @@ func TestNewRequest_Header(t *testing.T) {
 	req, _ := client.NewRequestWithContext(context.TODO(), http.MethodGet, "/foo", nil)
 
 	expectedHeader := http.Header{}
-	expectedHeader.Add("User-Agent", "terraform-provider-foreman")
+	expectedHeader.Add("User-Agent", "foremango")
 	expectedHeader.Add("Content-Type", "application/json")
 	expectedHeader.Add("ACCEPT", "application/json,version="+FOREMAN_API_VERSION)
 	expectedHeader.Add("Authorization", credentialsEncoded)
