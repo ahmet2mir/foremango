@@ -1,7 +1,10 @@
 package foreman
 
 import (
+	"bytes"
 	"context"
+	"io"
+	"strings"
 	"testing"
 )
 
@@ -52,5 +55,85 @@ func TestClientConfig_LoggerDefaultWhenUnset(t *testing.T) {
 	_, _ = withoutCustom.NewRequestWithContext(context.TODO(), "BOGUS", "/foo", nil)
 	if len(rec.calls) != 0 {
 		t.Fatalf("a client without ClientConfig.Logger must not log through another client's configured Logger")
+	}
+}
+
+func TestLogLevel_String(t *testing.T) {
+	cases := map[LogLevel]string{
+		LevelTrace:   "TRACE",
+		LevelDebug:   "DEBUG",
+		LevelInfo:    "INFO",
+		LevelWarning: "WARNING",
+		LevelError:   "ERROR",
+		LevelNone:    "NONE",
+		LogLevel(99): "",
+		LogLevel(-1): "",
+	}
+	for level, want := range cases {
+		if got := level.String(); got != want {
+			t.Errorf("LogLevel(%d).String() = %q, want %q", int(level), got, want)
+		}
+	}
+}
+
+func TestParseLevel(t *testing.T) {
+	cases := []struct {
+		in     string
+		want   LogLevel
+		wantOk bool
+	}{
+		{"trace", LevelTrace, true},
+		{" TRACE ", LevelTrace, true},
+		{"debug", LevelDebug, true},
+		{"info", LevelInfo, true},
+		{"warning", LevelWarning, true},
+		{"warn", LevelWarning, true},
+		{"error", LevelError, true},
+		{"none", LevelNone, true},
+		{"off", LevelNone, true},
+		{"nonsense", LevelInfo, false},
+	}
+	for _, c := range cases {
+		got, ok := parseLevel(c.in)
+		if got != c.want || ok != c.wantOk {
+			t.Errorf("parseLevel(%q) = (%v, %v), want (%v, %v)", c.in, got, ok, c.want, c.wantOk)
+		}
+	}
+}
+
+// Exercises the package-level logging functions (used by code with no
+// *Client at hand) against the shared default logger, restoring its level
+// and output afterwards so this test doesn't leak state into others.
+func TestPackageLevelLogging(t *testing.T) {
+	prevLevel := Level()
+	defer SetLevel(prevLevel)
+	defer SetOutput(io.Discard) // matches TestMain's default for every other test
+
+	var buf bytes.Buffer
+	SetOutput(&buf)
+	SetLevel(LevelTrace)
+
+	Tracef("trace %d", 1)
+	Debug("debug %d", 2)
+	Infof("info %d", 3)
+	Warningf("warning %d", 4)
+	Errorf("error %d", 5)
+	Fatalf("fatal %d", 6)
+	Fatal("fatal-single")
+	TraceFunctionCall()
+
+	out := buf.String()
+	for _, want := range []string{
+		"[TRACE] trace 1",
+		"[DEBUG] debug 2",
+		"[INFO] info 3",
+		"[WARNING] warning 4",
+		"[ERROR] error 5",
+		"[ERROR] FATAL: fatal 6",
+		"[ERROR] FATAL: fatal-single",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected log output to contain %q, got:\n%s", want, out)
+		}
 	}
 }

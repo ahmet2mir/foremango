@@ -74,3 +74,70 @@ func TestKatelloContentView_CRUD(t *testing.T) {
 		t.Fatalf("DeleteKatelloContentView: %v", err)
 	}
 }
+
+// Exercises CreateKatelloContentView's other branch: cv.Filters != nil,
+// which routes through CreateKatelloContentViewFilters before publishing.
+func TestKatelloContentView_CreateWithFilters(t *testing.T) {
+	mux, d, client := newDummyServer(t)
+	ctx := context.Background()
+
+	const collection = "/katello/api/content_views"
+	mux.HandleFunc("POST "+collection+"/{id}/publish", func(w http.ResponseWriter, r *http.Request) {
+		id, _ := strconv.Atoi(r.PathValue("id"))
+		obj, ok := d.storeFor(collection).get(id)
+		if !ok {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, http.StatusOK, obj)
+	})
+
+	created, err := client.CreateKatelloContentView(ctx, &ContentView{
+		ForemanObject: ForemanObject{Name: "cv-with-filters"},
+		Filters: []ContentViewFilter{
+			{ForemanObject: ForemanObject{Name: "filter1"}, Type: "rpm"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateKatelloContentView: %v", err)
+	}
+	// NOTE: the subsequent publish step overwrites the whole ContentView from
+	// its own response, which never carries "filters" (ContentView.MarshalJSON
+	// doesn't emit that field) - so created.Filters is empty here regardless
+	// of the filters just created above. That's the library's own behavior,
+	// not a dummy-server artifact; confirm the filter itself was actually
+	// created, independent of what Create then returns.
+	qr, err := client.QueryContentViewFilters(ctx, created.Id)
+	if err != nil {
+		t.Fatalf("QueryContentViewFilters: %v", err)
+	}
+	if len(qr.Results) != 1 {
+		t.Fatalf("expected the filter created alongside the content view to exist, got %d result(s)", len(qr.Results))
+	}
+}
+
+// ReadContentViewFilters (distinct from ReadKatelloContentViewFilters in
+// katello_content_view_filters.go) has a bug: it type-asserts items out of
+// queryResponse.Results directly as ContentViewFilter, but SendAndParse
+// decodes JSON into that field generically (as map[string]interface{}), so
+// the assertion can never succeed - only an empty result set avoids it.
+func TestKatelloContentView_ReadContentViewFilters(t *testing.T) {
+	_, d, client := newDummyServer(t)
+	ctx := context.Background()
+
+	const cvID = 7
+	filtersPath := "/katello/api/content_views/" + strconv.Itoa(cvID) + "/filters"
+
+	empty, err := client.ReadContentViewFilters(ctx, cvID)
+	if err != nil {
+		t.Fatalf("ReadContentViewFilters (empty): %v", err)
+	}
+	if len(*empty) != 0 {
+		t.Fatalf("ReadContentViewFilters (empty): expected no filters, got %+v", *empty)
+	}
+
+	d.storeFor(filtersPath).seed(1, map[string]interface{}{"name": "filter1"})
+	if _, err := client.ReadContentViewFilters(ctx, cvID); err == nil {
+		t.Fatalf("ReadContentViewFilters (non-empty): expected the known cast-failure error, got nil")
+	}
+}

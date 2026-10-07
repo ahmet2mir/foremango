@@ -175,3 +175,14 @@ func TestNewClient_ConfigHTTPClientOverride(t *testing.T) {
 		)
 	}
 }
+
+func TestClient_SetHTTPClient(t *testing.T) {
+	client := NewClient(Server{}, ClientCredentials{}, ClientConfig{})
+
+	replacement := &http.Client{}
+	client.SetHTTPClient(replacement)
+
+	if client.HTTPClient() != HTTPDoer(replacement) {
+		t.Fatalf("SetHTTPClient did not replace the Client's HTTPDoer")
+	}
+}

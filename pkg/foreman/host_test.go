@@ -67,3 +67,31 @@ func TestHost_SendPowerCommand(t *testing.T) {
 		t.Fatalf("SendPowerCommand: %v", err)
 	}
 }
+
+// Covers SendPowerCommand's other branches: BMCBoot (a different URL
+// suffix than Power), an unsupported command type, and a reported failure.
+func TestHost_SendPowerCommand_OtherBranches(t *testing.T) {
+	mux, _, client := newDummyServer(t)
+	ctx := context.Background()
+	host := &ForemanHost{ForemanObject: ForemanObject{Id: 1, Name: "host1.example.com"}}
+
+	mux.HandleFunc("PUT /api/hosts/{id}/boot", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"boot": map[string]interface{}{"result": true},
+		})
+	})
+	if err := client.SendPowerCommand(ctx, host, BMCBoot{Device: "disk"}, 1); err != nil {
+		t.Fatalf("SendPowerCommand (BMCBoot): %v", err)
+	}
+
+	if err := client.SendPowerCommand(ctx, host, "not-a-valid-command", 1); err == nil {
+		t.Fatalf("SendPowerCommand: expected an error for an unsupported command type, got nil")
+	}
+
+	mux.HandleFunc("PUT /api/hosts/{id}/power", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]interface{}{"power": false})
+	})
+	if err := client.SendPowerCommand(ctx, host, Power{PowerAction: "start", Power: true}, 1); err == nil {
+		t.Fatalf("SendPowerCommand: expected an error when the server reports power=false, got nil")
+	}
+}

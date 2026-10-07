@@ -52,3 +52,23 @@ func TestUser_CRUD(t *testing.T) {
 		t.Fatalf("DeleteUser: %v", err)
 	}
 }
+
+// QueryUser builds its search query from the first of Description,
+// Firstname, Lastname, Mail, or Login that's set; each is its own branch.
+func TestQueryUser_SearchFields(t *testing.T) {
+	_, _, client := newDummyServer(t)
+	ctx := context.Background()
+
+	for _, u := range []*ForemanUser{
+		{Description: "desc"},
+		{Firstname: "First"},
+		{Lastname: "Last"},
+		{Mail: "a@b.com"},
+		{Login: "login"},
+		{}, // none set
+	} {
+		if _, err := client.QueryUser(ctx, u); err != nil {
+			t.Fatalf("QueryUser(%+v): %v", u, err)
+		}
+	}
+}

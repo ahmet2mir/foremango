@@ -52,3 +52,54 @@ func TestComputeProfile_CRUD(t *testing.T) {
 		t.Fatalf("DeleteComputeProfile: %v", err)
 	}
 }
+
+// Exercises the per-ComputeAttribute nested POST/PUT loops in
+// CreateComputeprofile/UpdateComputeProfile, and - through them -
+// ForemanComputeAttribute's custom MarshalJSON (pointer receiver, and
+// ComputeAttributes is []*ForemanComputeAttribute, so unlike
+// ContentViewFilter's it's actually reachable in practice).
+func TestComputeProfile_WithComputeAttributes(t *testing.T) {
+	_, _, client := newDummyServer(t)
+	ctx := context.Background()
+
+	const computeResourceID = 2
+
+	created, err := client.CreateComputeprofile(ctx, &ForemanComputeProfile{
+		ForemanObject: ForemanObject{Name: "1-small"},
+		ComputeAttributes: []*ForemanComputeAttribute{
+			{
+				ComputeResourceId: computeResourceID,
+				VMAttrs: map[string]interface{}{
+					"cpus":    4,
+					"memory":  2147483648.0,
+					"hvm":     true,
+					"nil_one": nil,
+					"label":   "custom",
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateComputeprofile: %v", err)
+	}
+	if len(created.ComputeAttributes) != 1 || created.ComputeAttributes[0].Id == 0 {
+		t.Fatalf("CreateComputeprofile: expected one created compute attribute, got %+v", created.ComputeAttributes)
+	}
+
+	updated, err := client.UpdateComputeProfile(ctx, &ForemanComputeProfile{
+		ForemanObject: ForemanObject{Id: created.Id, Name: "1-small"},
+		ComputeAttributes: []*ForemanComputeAttribute{
+			{
+				ForemanObject:     ForemanObject{Id: created.ComputeAttributes[0].Id},
+				ComputeResourceId: computeResourceID,
+				VMAttrs:           map[string]interface{}{"cpus": 8},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateComputeProfile: %v", err)
+	}
+	if len(updated.ComputeAttributes) != 1 {
+		t.Fatalf("UpdateComputeProfile: expected one updated compute attribute, got %+v", updated.ComputeAttributes)
+	}
+}
