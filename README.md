@@ -121,6 +121,9 @@ func main() {
 }
 ```
 
+More in [`examples`](examples) - e.g. [`host_with_parameters`](examples/host_with_parameters)
+for creating a host and associating parameters with it.
+
 ## Using your own HTTP client
 
 `NewClient` builds a default `*http.Client` from
