@@ -101,7 +101,6 @@ func (r *ForemanKatelloRepository) MarshalJSON() ([]byte, error) {
 		m["deb_releases"] = r.DebReleases
 		m["deb_components"] = r.DebComponents
 		m["deb_architectures"] = r.DebArchitectures
-		break
 	case "docker":
 		m["docker_upstream_name"] = r.DockerUpstreamName
 		m["docker_tags_whitelist"] = r.DockerTagsWhitelist

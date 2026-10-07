@@ -1,7 +1,7 @@
 package foreman
 
 import (
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -49,7 +49,7 @@ func NewForemanAPIAndClient(cred ClientCredentials, conf ClientConfig) (*http.Se
 }
 
 func TestMain(m *testing.M) {
-	SetOutput(ioutil.Discard)
+	SetOutput(io.Discard)
 	os.Exit(m.Run())
 }
 

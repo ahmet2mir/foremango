@@ -49,7 +49,7 @@ func TestClientConfig_LoggerDefaultWhenUnset(t *testing.T) {
 	_ = NewClient(Server{}, ClientCredentials{}, ClientConfig{Logger: rec})
 	withoutCustom := NewClient(Server{}, ClientCredentials{}, ClientConfig{})
 
-	withoutCustom.NewRequestWithContext(context.TODO(), "BOGUS", "/foo", nil)
+	_, _ = withoutCustom.NewRequestWithContext(context.TODO(), "BOGUS", "/foo", nil)
 	if len(rec.calls) != 0 {
 		t.Fatalf("a client without ClientConfig.Logger must not log through another client's configured Logger")
 	}

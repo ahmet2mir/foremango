@@ -114,7 +114,7 @@ func (c *Client) QueryPuppetClass(ctx context.Context, t *ForemanPuppetClass) (Q
 	}
 	// convert the search results from []ForemanPuppetClass to []interface
 	// and set the search results on the query
-	iArr := make([]interface{}, 1)
+	iArr := make([]interface{}, len(results))
 	for idx, val := range results {
 		iArr[idx] = val
 	}

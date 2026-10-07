@@ -114,6 +114,9 @@ func NewClient(s Server, cred ClientCredentials, cfg ClientConfig) *Client {
 		// settings of the HTTP client.
 		cleanClient := cleanhttp.DefaultClient()
 		tlsClientConfig := &tls.Config{
+			// #nosec G402 -- opt-in, documented on ClientConfig.TLSInsecureEnabled,
+			// for talking to a Foreman server with a self-signed/internal cert.
+			// Defaults to false; the caller must explicitly ask for this.
 			InsecureSkipVerify: cfg.TLSInsecureEnabled,
 		}
 		if cfg.NegotiateAuthEnabled {

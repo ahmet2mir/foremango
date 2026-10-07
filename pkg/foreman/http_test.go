@@ -249,7 +249,7 @@ func TestSend_ResponseBody(t *testing.T) {
 	// dummy '[GET] /foo' endpoint - returns "Hello, World!"
 	mux.HandleFunc(FOREMAN_API_URL_PREFIX+"/foo", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write(expectedRespBody)
+		_, _ = w.Write(expectedRespBody)
 	})
 
 	req, _ := client.NewRequestWithContext(context.TODO(), http.MethodGet, "/foo", nil)

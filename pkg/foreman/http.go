@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"strings"
 )
@@ -127,7 +126,7 @@ func (c *Client) NewRequestWithContext(ctx context.Context, method string, endpo
 		return nil, fmt.Errorf("invalid HTTP request method: [%s]", method)
 	}
 
-	var version_append string = ""
+	var version_append string
 
 	// Build the URL for the request
 	reqURL := c.Server.URL
@@ -242,10 +241,10 @@ func (c *Client) Send(request *http.Request) (int, []byte, error) {
 	// NOTE(ALL): Golang stdlib dictates that it is the caller's resposibility
 	//   to close the response body.  See net/http Response type for more
 	//   information.
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Read the server's response
-	respBody, readErr := ioutil.ReadAll(resp.Body)
+	respBody, readErr := io.ReadAll(resp.Body)
 	if readErr != nil {
 		c.log.Errorf(
 			"error encountered when reading HTTP response from server\n"+

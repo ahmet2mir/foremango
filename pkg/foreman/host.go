@@ -123,10 +123,6 @@ type ForemanHost struct {
 	RootPassword string `json:"root_pass,omitempty"`
 }
 
-func (fh *ForemanHost) isBuilt() bool {
-	return fh.BuildStatus == 0
-}
-
 // ForemanInterfacesAttribute representing a hosts defined network interfaces
 type ForemanInterfacesAttribute struct {
 	Id         int    `json:"id,omitempty"`
@@ -209,7 +205,7 @@ func (c *Client) SendPowerCommand(ctx context.Context, h *ForemanHost, cmd inter
 	case BMCBoot:
 		suffix = BootSuffix
 	default:
-		return fmt.Errorf("Invalid Operation: [%v]", v)
+		return fmt.Errorf("invalid operation: [%v]", v)
 	}
 
 	reqHost := fmt.Sprintf("/%s/%d/%s", HostEndpointPrefix, h.Id, suffix)
@@ -251,7 +247,7 @@ func (c *Client) SendPowerCommand(ctx context.Context, h *ForemanHost, cmd inter
 
 	// Test operation and return an error if result is false
 	if powerMap[PowerSuffix] == false || bootMap[BootSuffix]["result"] == false {
-		return fmt.Errorf("Failed Power Operation")
+		return fmt.Errorf("failed power operation")
 	}
 	return nil
 }
