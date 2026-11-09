@@ -28,9 +28,9 @@ func TestClientConfig_LoggerOverride(t *testing.T) {
 	rec := &recordingLogger{}
 	client := NewClient(Server{}, ClientCredentials{}, ClientConfig{Logger: rec})
 
-	// NewRequestWithContext logs via c.log.Debugf on the happy path and
+	// Do logs via c.log.Debugf on the happy path and
 	// c.log.Errorf when given an invalid HTTP method.
-	if _, err := client.NewRequestWithContext(context.TODO(), "BOGUS", "/foo", nil); err == nil {
+	if err := client.Do(context.TODO(), "BOGUS", "/foo", nil, nil, nil); err == nil {
 		t.Fatalf("expected an error for an invalid HTTP method")
 	}
 
@@ -52,7 +52,7 @@ func TestClientConfig_LoggerDefaultWhenUnset(t *testing.T) {
 	_ = NewClient(Server{}, ClientCredentials{}, ClientConfig{Logger: rec})
 	withoutCustom := NewClient(Server{}, ClientCredentials{}, ClientConfig{})
 
-	_, _ = withoutCustom.NewRequestWithContext(context.TODO(), "BOGUS", "/foo", nil)
+	_ = withoutCustom.Do(context.TODO(), "BOGUS", "/foo", nil, nil, nil)
 	if len(rec.calls) != 0 {
 		t.Fatalf("a client without ClientConfig.Logger must not log through another client's configured Logger")
 	}

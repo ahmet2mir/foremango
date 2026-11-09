@@ -1,20 +1,16 @@
-// Package foreman is foremango's Foreman/Katello API client: connection
-// config (Server, ClientCredentials, ClientConfig), the Client that builds
-// and sends requests and exposes every Foreman/Katello resource method
-// (CreateX/ReadX/UpdateX/DeleteX/QueryX), and the pluggable Logger it uses.
-// Everything lives in this one package - there is no separate transport
-// package to embed or wrap.
+// Package foreman is a Go client for the Foreman API.
 //
-// The package is split by concern across files so each piece is easy to
-// find:
+// A Client sends every request through Client.Do, on top of a resty client
+// (resty.dev/v3) that callers can supply and configure themselves. The
+// resource types and their CreateX/ReadX/UpdateX/DeleteX/QueryX methods
+// live in the *_generated.go files, produced by tools/apigen from
+// Foreman's apidoc.
 //
-//	client.go   - this file: just Client and how to build one (NewClient).
-//	http.go     - request building/sending, HTTPError, HTTPDoer.
+//	client.go   - Client, its configuration, NewClient.
+//	http.go     - Client.Do, endpoint routing, HTTPError, Payload.
+//	types.go    - ForemanObject and List, shared by every resource.
+//	server.go   - Server.
 //	logger.go   - the Logger interface and the built-in default logger.
-//	server.go   - the Server type.
-//	<resource>.go - one file per Foreman/Katello resource (architecture.go,
-//	  host.go, ...): its type plus its CreateX/ReadX/UpdateX/DeleteX/QueryX
-//	  methods on *Client.
 package foreman
 
 import (
@@ -22,125 +18,114 @@ import (
 	"net/http"
 
 	"github.com/dpotapov/go-spnego"
-
-	cleanhttp "github.com/hashicorp/go-cleanhttp"
+	"resty.dev/v3"
 )
 
-// ClientCredentials used to authenticate the client against the remote
-// server - in this case, the Foreman API.
+// ClientCredentials are the username and password sent as HTTP basic auth
+// with every request. Leave both empty to send no basic auth, when the
+// resty client authenticates by other means (SPNEGO, a token header, ...).
 type ClientCredentials struct {
 	Username string
 	Password string
 }
 
-// ClientConfig holds configurable features of the REST client.
+// ClientConfig configures a Client.
 type ClientConfig struct {
-	// Whether or not to verify the server's certificate/hostname.  This flag
-	// is passed to the TLS config when initializing the REST client for API
-	// communication. Ignored if HTTPClient is set.
-	//
-	// See 'pkg/crypto/tls/#Config.InsecureSkipVerify' for more information
+	// TLSInsecureEnabled turns off verification of the server's TLS
+	// certificate. Only for test servers with a self-signed certificate;
+	// prefer trusting the server's CA on your own RestyClient. Ignored when
+	// RestyClient is set.
 	TLSInsecureEnabled bool
 
-	// Whether or not the client should try to authenticate to foreman
-	// through the HTTP negotiate mechanism. Ignored if HTTPClient is set.
+	// NegotiateAuthEnabled authenticates with HTTP Negotiate (SPNEGO,
+	// Kerberos) instead of basic auth. Ignored when RestyClient is set.
 	NegotiateAuthEnabled bool
 
-	// Information as required by all API calls
+	// LocationID and OrganizationID, when > 0, are sent with every create
+	// and update (see Client.Payload) so new objects land in that location
+	// and organization.
 	LocationID     int
 	OrganizationID int
 
-	// HTTPClient, when set, is used as-is to send every request instead of
-	// the client NewClient would otherwise build from TLSInsecureEnabled and
-	// NegotiateAuthEnabled (which are then ignored). Use this to fully
-	// control transport behavior: a custom *http.Client with its own
-	// *http.Transport (proxies, connection pooling, mTLS, ...), a
-	// retrying/instrumented wrapper, or a test double satisfying HTTPDoer.
-	//
-	// *http.Client satisfies HTTPDoer without any change. See http.go.
-	HTTPClient HTTPDoer
+	// RestyClient, when set, sends every request as-is; TLSInsecureEnabled
+	// and NegotiateAuthEnabled are then ignored. Configure retries,
+	// timeouts, transport, CA certificates, middleware, tracing and so on
+	// on it directly. Per request, foremango only sets the URL, the Accept
+	// and Content-Type headers, and basic auth from ClientCredentials.
+	RestyClient *resty.Client
 
-	// Logger, when set, is used as this client's logger instead of the
-	// built-in default (see logger.go). Implement the Logger interface to
-	// route this client's diagnostics through zap, logrus, slog, or
-	// anything else.
+	// Logger receives this client's diagnostics. Defaults to the built-in
+	// logger (see logger.go).
 	Logger Logger
 }
 
-// Client is the REST client used to communicate with the Foreman API, and
-// the receiver of every resource method in this package.
+// Client sends requests to one Foreman server. Every resource method is
+// defined on it.
 type Client struct {
-	// Server used to communicate and interact with the API.
+	// Server is the Foreman server requests are sent to.
 	Server Server
-	// Configuration this client was built with - the same ClientConfig
-	// passed to NewClient (including the resolved HTTPClient would be
-	// confusing here, so HTTPClient is accessible via the HTTPClient()
-	// method instead; see http.go).
+	// Config is the configuration the client was built with.
 	Config ClientConfig
 
-	// credentials to authenticate the client. Deliberately unexported: there
-	// is no legitimate need for a caller holding a *Client to read the
-	// password back out of it.
+	// credentials is unexported so the password can't be read back from
+	// a Client.
 	credentials ClientCredentials
-
-	// httpClient is the HTTPDoer actually used to send requests - either
-	// Config.HTTPClient verbatim, or the one NewClient built from
-	// Config.TLSInsecureEnabled / Config.NegotiateAuthEnabled. See http.go.
-	httpClient HTTPDoer
-
-	// log is this client's Logger - Config.Logger if set, else
-	// defaultLogger (see logger.go). Every method on Client logs through
-	// c.log; call sites with no Client at hand (a resource type's
-	// UnmarshalJSON, say) use the package-level functions in logger.go
-	// instead, which always go through defaultLogger.
-	log Logger
+	resty       *resty.Client
+	log         Logger
 }
 
-// NewClient creates a new instance of the REST client for communication with
-// the API gateway.
+// NewClient returns a Client for server s, authenticating with cred.
 func NewClient(s Server, cred ClientCredentials, cfg ClientConfig) *Client {
 	TraceFunctionCall()
-	Debugf(
-		"Server: [%+v], "+
-			"ClientConfig: [%+v]",
-		s,
-		cfg,
-	)
-
-	doer := cfg.HTTPClient
-	if doer == nil {
-		// Initialize the HTTP client for use by the provider.  The insecure
-		// flag from the provider config is used when configuring the TLS
-		// settings of the HTTP client.
-		cleanClient := cleanhttp.DefaultClient()
-		tlsClientConfig := &tls.Config{
-			// #nosec G402 -- opt-in, documented on ClientConfig.TLSInsecureEnabled,
-			// for talking to a Foreman server with a self-signed/internal cert.
-			// Defaults to false; the caller must explicitly ask for this.
-			InsecureSkipVerify: cfg.TLSInsecureEnabled,
-		}
-		if cfg.NegotiateAuthEnabled {
-			transCfg := &spnego.Transport{}
-			transCfg.TLSClientConfig = tlsClientConfig
-			cleanClient.Transport = transCfg
-		} else {
-			transCfg := &http.Transport{}
-			transCfg.TLSClientConfig = tlsClientConfig
-			cleanClient.Transport = transCfg
-		}
-		doer = cleanClient
-	}
 
 	log := cfg.Logger
 	if log == nil {
 		log = defaultLogger
 	}
 
+	rc := cfg.RestyClient
+	if rc == nil {
+		rc = newDefaultRestyClient(cfg, log)
+	}
+
 	return &Client{
 		Server:      s,
 		Config:      cfg,
 		credentials: cred,
-		httpClient:  doer,
+		resty:       rc,
 		log:         log,
 	}
 }
+
+// newDefaultRestyClient builds the resty client used when
+// ClientConfig.RestyClient is not set.
+func newDefaultRestyClient(cfg ClientConfig, log Logger) *resty.Client {
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		// #nosec G402 -- opt-in through ClientConfig.TLSInsecureEnabled,
+		// false by default.
+		InsecureSkipVerify: cfg.TLSInsecureEnabled,
+	}
+
+	rc := resty.New().
+		SetLogger(restyLogger{log}).
+		SetHeader("User-Agent", "foremango")
+
+	if cfg.NegotiateAuthEnabled {
+		transport := &spnego.Transport{}
+		transport.Proxy = http.ProxyFromEnvironment
+		transport.TLSClientConfig = tlsConfig
+		rc.SetTransport(transport)
+	} else {
+		rc.SetTLSClientConfig(tlsConfig)
+	}
+
+	return rc
+}
+
+// restyLogger sends resty's own messages to a Logger.
+type restyLogger struct{ l Logger }
+
+func (r restyLogger) Errorf(format string, v ...any) { r.l.Errorf(format, v...) }
+func (r restyLogger) Warnf(format string, v ...any)  { r.l.Warningf(format, v...) }
+func (r restyLogger) Debugf(format string, v ...any) { r.l.Debugf(format, v...) }

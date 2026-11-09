@@ -4,7 +4,7 @@ go 1.26.5
 
 require (
 	github.com/dpotapov/go-spnego v0.0.0-20220426193508-b7f82e4507db
-	github.com/hashicorp/go-cleanhttp v0.5.2
+	resty.dev/v3 v3.0.0-rc.4
 )
 
 require (

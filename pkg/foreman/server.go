@@ -1,12 +1,11 @@
 package foreman
 
-import (
-	"net/url"
-)
+import "net/url"
 
-// Server definition. The server represents the Foreman API endpoint that a
-// Client directs all of its requests to.
+// Server is the Foreman instance a Client talks to.
 type Server struct {
-	// The URL of the API gateway
+	// URL is the server's base URL, such as https://foreman.example.com.
+	// If Foreman is served under a sub-path, include it: it is kept as a
+	// prefix of every API path.
 	URL url.URL
 }

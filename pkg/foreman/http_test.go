@@ -1,356 +1,281 @@
-// HTTP request building, sending, and response-parsing tests for Client.
-// See client_test.go for NewClient/construction tests.
 package foreman
 
 import (
 	"context"
-	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"testing"
+
+	"resty.dev/v3"
 )
 
-// ----------------------------------------------------------------------------
-// Client.NewRequestWithContext
-// ----------------------------------------------------------------------------
-
-// Ensures Client.NewRequestWithContext() returns an error for a bad HTTP method.
-func TestNewRequest_BadHTTPMethodError(t *testing.T) {
-	serv := Server{}
-	cred := ClientCredentials{}
-	conf := ClientConfig{}
-	client := NewClient(serv, cred, conf)
-
-	badHTTPMethods := []string{"",
-		"FOO",
-		"ZZ",
-		"fo0",
-		"connect",
-		"CONNECT",
-		"10",
-		" GET",
-		"\tGET\n",
-		"get\n",
-	}
-	for _, value := range badHTTPMethods {
-		_, badReqErr := client.NewRequestWithContext(context.TODO(), value, "/foo", nil)
-		if badReqErr == nil {
-			t.Fatalf(
-				"Client.NewRequestWithContext did not return error when given invalid HTTP method [%s]. "+
-					"Expected [error], got [nil].",
-				value,
-			)
+func TestDo_RejectsInvalidMethod(t *testing.T) {
+	c := NewClient(Server{}, ClientCredentials{}, ClientConfig{})
+	for _, m := range []string{"", "FETCH", "CONNECT", "connect", " GET", "GET\n", "G E T"} {
+		if err := c.Do(context.Background(), m, "hosts", nil, nil, nil); err == nil {
+			t.Errorf("Do(%q) returned no error", m)
 		}
 	}
-
 }
 
-// Ensures Client.NewRequestWithContext() does not raise an error when given a valid
-// HTTP method.
-func TestNewRequest_GoodHTTPMethodNoError(t *testing.T) {
-	serv := Server{}
-	cred := ClientCredentials{}
-	conf := ClientConfig{}
-	client := NewClient(serv, cred, conf)
-
-	goodHTTPMethods := []string{
-		"GET",
-		"gEt",
-		"get",
-		"Get",
-		http.MethodGet,
-		http.MethodHead,
-		http.MethodPost,
-		http.MethodPut,
-		http.MethodDelete,
-		http.MethodOptions,
-		http.MethodTrace,
-		http.MethodPatch,
-	}
-	for _, value := range goodHTTPMethods {
-		_, reqErr := client.NewRequestWithContext(context.TODO(), value, "/foo", nil)
-		if reqErr != nil {
-			t.Fatalf(
-				"Client.NewRequestWithContext returned an error when given valid HTTP method [%s]. "+
-					"Expected [nil], got [%s].",
-				value,
-				reqErr.Error(),
-			)
+func TestDo_SendsMethodUpperCase(t *testing.T) {
+	var got string
+	c := testClient(t, ClientCredentials{}, ClientConfig{}, func(w http.ResponseWriter, r *http.Request) {
+		got = r.Method
+	})
+	for _, m := range []string{"get", "Post", "pUT", "patch", "delete", "HEAD", "options", "trace"} {
+		if err := c.Do(context.Background(), m, "hosts", nil, nil, nil); err != nil {
+			t.Fatalf("Do(%q): %v", m, err)
+		}
+		if got != strings.ToUpper(m) {
+			t.Errorf("server got method %q for %q", got, m)
 		}
 	}
-
 }
 
-// Ensures Client.NewRequestWithContext() sets the HTTP request's method to upper case.
-func TestNewRequest_RequestMethodToUpper(t *testing.T) {
-	serv := Server{}
-	cred := ClientCredentials{}
-	conf := ClientConfig{}
-	client := NewClient(serv, cred, conf)
+func TestDo_Headers(t *testing.T) {
+	var got http.Header
+	c := testClient(t, ClientCredentials{Username: "admin", Password: "secret"}, ClientConfig{},
+		func(w http.ResponseWriter, r *http.Request) { got = r.Header.Clone() })
 
-	testMethods := []string{
-		"get",
-		"Get",
-		"gEt",
-		"geT",
-		"GEt",
-		"gET",
-		"GeT",
-		"GET",
-		http.MethodGet,
+	if err := c.Do(context.Background(), http.MethodGet, "hosts", nil, nil, nil); err != nil {
+		t.Fatalf("Do: %v", err)
 	}
-	expectedMethod := "GET"
 
-	for _, value := range testMethods {
-		req, _ := client.NewRequestWithContext(context.TODO(), value, "/foo", nil)
-		if req.Method != expectedMethod {
-			t.Fatalf(
-				"http.Request returned by Client.NewRequestWithContext() has incorrect Method. "+
-					"Expected [%s], got [%s].\n",
-				expectedMethod,
-				req.Method,
-			)
+	req, _ := http.NewRequest(http.MethodGet, "/", nil)
+	req.SetBasicAuth("admin", "secret")
+	want := map[string]string{
+		"Accept":        "application/json,version=" + apiVersion,
+		"Content-Type":  "application/json",
+		"User-Agent":    "foremango",
+		"Authorization": req.Header.Get("Authorization"),
+	}
+	for k, v := range want {
+		if got.Get(k) != v {
+			t.Errorf("header %s = %q, want %q", k, got.Get(k), v)
 		}
 	}
-
 }
 
-// Ensures Client.NewRequestWithContext() sets the correct meta-data on the HTTP
-// request.
-func TestNewRequest_Header(t *testing.T) {
-	serv := Server{}
-	cred := ClientCredentials{
-		Username: "Admin",
-		Password: "ChangeMe",
+func TestDo_NoBasicAuthWithoutCredentials(t *testing.T) {
+	var auth string
+	c := testClient(t, ClientCredentials{}, ClientConfig{}, func(w http.ResponseWriter, r *http.Request) {
+		auth = r.Header.Get("Authorization")
+	})
+	if err := c.Do(context.Background(), http.MethodGet, "hosts", nil, nil, nil); err != nil {
+		t.Fatalf("Do: %v", err)
 	}
-	conf := ClientConfig{}
-	client := NewClient(serv, cred, conf)
+	if auth != "" {
+		t.Errorf("Authorization = %q, want none", auth)
+	}
+}
 
-	// perform HTTP basic access authorization for the credentials
-	// SEE: RFC 7617
-	credentialsEncoded := "Basic " + base64.StdEncoding.EncodeToString(
-		[]byte(cred.Username+":"+cred.Password),
-	)
+func TestDo_UsesSuppliedRestyClient(t *testing.T) {
+	var got string
+	rc := resty.New().SetHeader("X-Trace", "abc")
+	c := testClient(t, ClientCredentials{}, ClientConfig{RestyClient: rc}, func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("X-Trace")
+	})
+	if err := c.Do(context.Background(), http.MethodGet, "hosts", nil, nil, nil); err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	if got != "abc" {
+		t.Errorf("X-Trace = %q: supplied resty client not used", got)
+	}
+}
 
-	req, _ := client.NewRequestWithContext(context.TODO(), http.MethodGet, "/foo", nil)
-
-	expectedHeader := http.Header{}
-	expectedHeader.Add("User-Agent", "foremango")
-	expectedHeader.Add("Content-Type", "application/json")
-	expectedHeader.Add("ACCEPT", "application/json,version="+FOREMAN_API_VERSION)
-	expectedHeader.Add("Authorization", credentialsEncoded)
-
-	for key := range expectedHeader {
-		if req.Header.Get(key) != expectedHeader.Get(key) {
-			t.Fatalf(
-				"http.Request returned by Client.NewRequestWithContext() has incorrect HTTP header. "+
-					"Expected [%s], got [%s] for Header key [%s].\n",
-				expectedHeader.Get(key),
-				req.Header.Get(key),
-				key,
-			)
+func TestEndpointURL(t *testing.T) {
+	core := "application/json,version=" + apiVersion
+	plugin := "application/json"
+	cases := []struct {
+		base, endpoint, wantURL, wantAccept string
+	}{
+		{"https://f.example", "hosts", "https://f.example/api/hosts", core},
+		{"https://f.example", "hosts/3/parameters", "https://f.example/api/hosts/3/parameters", core},
+		{"https://f.example", "", "https://f.example/api/", core},
+		{"https://f.example", "katello/products/2", "https://f.example/katello/api/products/2", plugin},
+		{"https://f.example", "puppet/puppetclasses", "https://f.example/foreman_puppet/api/puppetclasses", plugin},
+		{"https://f.example", "foreman_tasks/tasks/9", "https://f.example/foreman_tasks/api/tasks/9", plugin},
+		{"https://f.example", "/api/status", "https://f.example/api/status", core},
+		{"https://f.example", "/katello/api/ping", "https://f.example/katello/api/ping", plugin},
+		{"https://f.example/foreman/", "hosts", "https://f.example/foreman/api/hosts", core},
+	}
+	for _, tc := range cases {
+		u, _ := url.Parse(tc.base)
+		c := NewClient(Server{URL: *u}, ClientCredentials{}, ClientConfig{})
+		gotURL, gotAccept := c.endpointURL(tc.endpoint)
+		if gotURL.String() != tc.wantURL || gotAccept != tc.wantAccept {
+			t.Errorf("endpointURL(%q) on %s = %s, %q; want %s, %q",
+				tc.endpoint, tc.base, gotURL.String(), gotAccept, tc.wantURL, tc.wantAccept)
+		}
+		if c.Server.URL.String() != u.String() {
+			t.Errorf("endpointURL changed the server URL to %s", c.Server.URL.String())
 		}
 	}
-
 }
 
-// Ensures Client.NewRequestWithContext() is properly concatenating the server's URL
-// and the endpoint when constructing the request's URL.
-func TestNewRequest_URL(t *testing.T) {
-	cred := ClientCredentials{}
-	conf := ClientConfig{}
-	_, server, client := NewForemanAPIAndClient(cred, conf)
-	defer server.Close()
-
-	// map with the endpoint as key and the expected constructed URL path as
-	// the value
-	testEndpoints := map[string]string{
-		"/foo":     FOREMAN_API_URL_PREFIX + "/foo",
-		"/":        FOREMAN_API_URL_PREFIX + "/",
-		"":         FOREMAN_API_URL_PREFIX + "/",
-		"/foo/bar": FOREMAN_API_URL_PREFIX + "/foo/bar",
-		"foo/bar":  FOREMAN_API_URL_PREFIX + "/foo/bar",
-	}
-
-	for key, value := range testEndpoints {
-		req, _ := client.NewRequestWithContext(context.TODO(), http.MethodGet, key, nil)
-		expectedURL := client.Server.URL
-		expectedURL.Path = value
-		if *(req.URL) != expectedURL {
-			t.Fatalf(
-				"http.Request returned by Client.NewRequestWithContext() has incorrect URL. "+
-					"Expected [%s], got [%s].\n",
-				expectedURL.String(),
-				req.URL.String(),
-			)
-		}
-	}
-
-}
-
-// ----------------------------------------------------------------------------
-// Client.Send
-// ----------------------------------------------------------------------------
-
-// Ensure Client.Send() returns an error when attempting to send a nil
-// http.Request reference.
-func TestSend_NilRequestError(t *testing.T) {
-	cred := ClientCredentials{}
-	conf := ClientConfig{}
-	_, server, client := NewForemanAPIAndClient(cred, conf)
-	defer server.Close()
-
-	_, _, sendErr := client.Send(nil)
-	if sendErr == nil {
-		t.Fatalf(
-			"Client.Send() did not return error when given nil. " +
-				"Expected [error], got [nil].",
-		)
-	}
-
-}
-
-// Ensure Client.Send() returns the server's HTTP response status code.
-func TestSend_StatusCode(t *testing.T) {
-	cred := ClientCredentials{}
-	conf := ClientConfig{}
-	mux, server, client := NewForemanAPIAndClient(cred, conf)
-	defer server.Close()
-
-	// dummy '[GET] /foo' endpoint - just returns 200
-	mux.HandleFunc(FOREMAN_API_URL_PREFIX+"/foo", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+func TestDo_QueryBodyAndDecode(t *testing.T) {
+	var search, body string
+	c := testClient(t, ClientCredentials{}, ClientConfig{}, func(w http.ResponseWriter, r *http.Request) {
+		search = r.URL.Query().Get("search")
+		b, _ := io.ReadAll(r.Body)
+		body = string(b)
+		_, _ = w.Write([]byte(`{"id":7,"name":"web01"}`))
 	})
 
-	req, _ := client.NewRequestWithContext(context.TODO(), http.MethodGet, "/foo", nil)
-	statusCode, _, _ := client.Send(req)
-
-	if statusCode != http.StatusOK {
-		t.Fatalf(
-			"Client.Send() did not return correct status code from server. "+
-				"Expected [%d], got [%d].",
-			http.StatusOK,
-			statusCode,
-		)
+	var out ForemanObject
+	q := url.Values{"search": {`name = "web01"`}}
+	if err := c.Do(context.Background(), http.MethodPost, "hosts", q, []byte(`{"host":{}}`), &out); err != nil {
+		t.Fatalf("Do: %v", err)
 	}
-
+	if search != `name = "web01"` {
+		t.Errorf("search = %q", search)
+	}
+	if body != `{"host":{}}` {
+		t.Errorf("body = %q", body)
+	}
+	if out.Id != 7 || out.Name != "web01" {
+		t.Errorf("decoded %+v", out)
+	}
 }
 
-// Ensure Client.Send() returns the server's response body.
-func TestSend_ResponseBody(t *testing.T) {
-	cred := ClientCredentials{}
-	conf := ClientConfig{}
-	mux, server, client := NewForemanAPIAndClient(cred, conf)
-	defer server.Close()
+func TestDo_EmptyResponseBody(t *testing.T) {
+	c := testClient(t, ClientCredentials{}, ClientConfig{}, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	var out ForemanObject
+	if err := c.Do(context.Background(), http.MethodDelete, "hosts/1", nil, nil, &out); err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+}
 
-	expectedRespStr := "Hello, World!"
-	expectedRespBody := []byte(expectedRespStr)
+func TestDo_InvalidJSON(t *testing.T) {
+	c := testClient(t, ClientCredentials{}, ClientConfig{}, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`not json`))
+	})
+	var out ForemanObject
+	if err := c.Do(context.Background(), http.MethodGet, "hosts/1", nil, nil, &out); err == nil {
+		t.Fatalf("Do decoded invalid JSON without error")
+	}
+}
 
-	// dummy '[GET] /foo' endpoint - returns "Hello, World!"
-	mux.HandleFunc(FOREMAN_API_URL_PREFIX+"/foo", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(expectedRespBody)
+func TestDo_HTTPError(t *testing.T) {
+	c := testClient(t, ClientCredentials{}, ClientConfig{}, func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/missing") {
+			http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
+			return
+		}
+		http.Error(w, "boom", http.StatusInternalServerError)
 	})
 
-	req, _ := client.NewRequestWithContext(context.TODO(), http.MethodGet, "/foo", nil)
-	_, respBody, _ := client.Send(req)
-
-	if string(respBody) != expectedRespStr {
-		t.Fatalf(
-			"Client.Send() did not return the correct response body from server. "+
-				"Expected [%s], got [%s].",
-			expectedRespStr,
-			respBody,
-		)
+	err := c.Do(context.Background(), http.MethodGet, "hosts/broken", nil, nil, nil)
+	var httpErr HTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("err = %v (%T), want HTTPError", err, err)
+	}
+	if httpErr.StatusCode != http.StatusInternalServerError || httpErr.Method != http.MethodGet ||
+		!strings.HasSuffix(httpErr.URL, "/api/hosts/broken") || strings.TrimSpace(httpErr.Body) != "boom" {
+		t.Errorf("HTTPError = %+v", httpErr)
+	}
+	if IsNotFound(err) {
+		t.Errorf("IsNotFound(500) = true")
 	}
 
-}
-
-// ----------------------------------------------------------------------------
-// IsNotFound
-// ----------------------------------------------------------------------------
-
-// Ensures IsNotFound recognizes a bare HTTPError for a 404 response.
-func TestIsNotFound_Direct(t *testing.T) {
-	err := HTTPError{Endpoint: "/foo", StatusCode: 404, RespBody: "not found"}
+	err = c.Do(context.Background(), http.MethodGet, "hosts/missing", nil, nil, nil)
 	if !IsNotFound(err) {
-		t.Fatalf("IsNotFound did not recognize a direct 404 HTTPError")
+		t.Errorf("IsNotFound(%v) = false", err)
+	}
+	if !IsNotFound(fmt.Errorf("reading host: %w", err)) {
+		t.Errorf("IsNotFound does not see through wrapping")
+	}
+	if IsNotFound(errors.New("other")) {
+		t.Errorf("IsNotFound(plain error) = true")
 	}
 }
 
-// Ensures IsNotFound recognizes an HTTPError wrapped with fmt.Errorf's %w,
-// as errors.As would be expected to.
-func TestIsNotFound_Wrapped(t *testing.T) {
-	inner := HTTPError{Endpoint: "/foo", StatusCode: 404, RespBody: "not found"}
-	wrapped := fmt.Errorf("while reading foo: %w", inner)
-	if !IsNotFound(wrapped) {
-		t.Fatalf("IsNotFound did not recognize a wrapped 404 HTTPError")
+func TestDo_TransportError(t *testing.T) {
+	c := testClient(t, ClientCredentials{}, ClientConfig{}, func(w http.ResponseWriter, r *http.Request) {})
+	c.Server.URL.Host = "127.0.0.1:1" // nothing listens there
+
+	err := c.Do(context.Background(), http.MethodGet, "hosts", nil, nil, nil)
+	if err == nil {
+		t.Fatalf("Do returned no error")
+	}
+	var httpErr HTTPError
+	if errors.As(err, &httpErr) {
+		t.Errorf("transport failure returned as HTTPError: %v", err)
 	}
 }
 
-// Ensures IsNotFound rejects a non-404 HTTPError and a plain error.
-func TestIsNotFound_False(t *testing.T) {
-	other := HTTPError{Endpoint: "/foo", StatusCode: 500, RespBody: "boom"}
-	if IsNotFound(other) {
-		t.Fatalf("IsNotFound incorrectly matched a 500 HTTPError")
+func TestPayload(t *testing.T) {
+	obj := map[string]string{"name": "web01"}
+	cases := []struct {
+		cfg  ClientConfig
+		want string
+	}{
+		{ClientConfig{}, `{"host":{"name":"web01"}}`},
+		{ClientConfig{LocationID: -1, OrganizationID: -1}, `{"host":{"name":"web01"}}`},
+		{ClientConfig{LocationID: 2}, `{"host":{"name":"web01"},"location_id":2}`},
+		{ClientConfig{LocationID: 2, OrganizationID: 5}, `{"host":{"name":"web01"},"location_id":2,"organization_id":5}`},
 	}
-	if IsNotFound(fmt.Errorf("unrelated error")) {
-		t.Fatalf("IsNotFound incorrectly matched a plain error")
+	for _, tc := range cases {
+		c := NewClient(Server{}, ClientCredentials{}, tc.cfg)
+		got, err := c.Payload("host", obj)
+		if err != nil {
+			t.Fatalf("Payload: %v", err)
+		}
+		if string(got) != tc.want {
+			t.Errorf("Payload with %+v = %s, want %s", tc.cfg, got, tc.want)
+		}
 	}
 }
 
-// ----------------------------------------------------------------------------
-// Client.SendAndParse
-// ----------------------------------------------------------------------------
-
-// Ensure SendAndParse() returns an error when the server responds with a
-// status code not in the 2xx range
-func TestSendAndParseStatusCodeError(t *testing.T) {
-	cred := ClientCredentials{
-		Username: "Admin",
-		Password: "ChangeMe",
-	}
-	conf := ClientConfig{}
-	mux, server, client := NewForemanAPIAndClient(cred, conf)
-	defer server.Close()
-
-	// dummy '[GET] /foo' endpoint - returns 500 Internal server error
-	mux.HandleFunc(FOREMAN_API_URL_PREFIX+"/foo", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
+// Exercises a generated resource end to end: create, read, query, delete.
+func TestGeneratedResource_RoundTrip(t *testing.T) {
+	var lastPath, lastSearch string
+	var lastBody map[string]any
+	c := testClient(t, ClientCredentials{}, ClientConfig{LocationID: 1}, func(w http.ResponseWriter, r *http.Request) {
+		lastPath = r.Method + " " + r.URL.Path
+		lastSearch = r.URL.Query().Get("search")
+		lastBody = nil
+		_ = json.NewDecoder(r.Body).Decode(&lastBody)
+		switch r.Method {
+		case http.MethodGet:
+			if r.URL.Path == "/api/architectures" {
+				_, _ = w.Write([]byte(`{"total":2,"subtotal":1,"page":1,"per_page":20,"search":"name = x86_64","results":[{"id":1,"name":"x86_64"}]}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"id":1,"name":"x86_64"}`))
+		case http.MethodPost:
+			_, _ = w.Write([]byte(`{"id":1,"name":"x86_64"}`))
+		}
 	})
+	ctx := context.Background()
 
-	req, _ := client.NewRequestWithContext(context.TODO(), http.MethodGet, "/foo", nil)
-	sendErr := client.SendAndParse(req, nil)
-	if sendErr == nil {
-		t.Errorf(
-			"Client.ParseAndSend() did not return an error when the server responded " +
-				"with a non-2xx status code. Expected [error] got [nil]",
-		)
+	created, err := c.CreateArchitecture(ctx, &ForemanArchitecture{ForemanObject: ForemanObject{Name: "x86_64"}})
+	if err != nil || created.Id != 1 {
+		t.Fatalf("CreateArchitecture = %+v, %v", created, err)
 	}
-}
-
-// Ensure SendAndParse() returns no errors when the server responds with a
-// status code in the 2xx range
-func TestSendAndParseStatusCodeNoError(t *testing.T) {
-	cred := ClientCredentials{
-		Username: "Admin",
-		Password: "ChangeMe",
+	if lastPath != "POST /api/architectures" || lastBody["location_id"] != float64(1) {
+		t.Errorf("create sent %s %v", lastPath, lastBody)
 	}
-	conf := ClientConfig{}
-	mux, server, client := NewForemanAPIAndClient(cred, conf)
-	defer server.Close()
 
-	// dummy '[GET] /foo' endpoint - returns 500 Internal server error
-	mux.HandleFunc(FOREMAN_API_URL_PREFIX+"/foo", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
+	read, err := c.ReadArchitecture(ctx, 1)
+	if err != nil || read.Name != "x86_64" || lastPath != "GET /api/architectures/1" {
+		t.Errorf("ReadArchitecture = %+v, %v via %s", read, err, lastPath)
+	}
 
-	req, _ := client.NewRequestWithContext(context.TODO(), http.MethodGet, "/foo", nil)
-	sendErr := client.SendAndParse(req, nil)
-	if sendErr != nil {
-		t.Errorf(
-			"Client.ParseAndSend() did not return an error when the server responded " +
-				"with a 2xx status code. Expected [nil] got [error]",
-		)
+	list, err := c.QueryArchitecture(ctx, "name = x86_64")
+	if err != nil || lastSearch != "name = x86_64" || list.Subtotal != 1 || len(list.Results) != 1 || list.Results[0].Name != "x86_64" {
+		t.Errorf("QueryArchitecture = %+v, %v (search %q)", list, err, lastSearch)
+	}
+
+	if err := c.DeleteArchitecture(ctx, 1); err != nil || lastPath != "DELETE /api/architectures/1" {
+		t.Errorf("DeleteArchitecture: %v via %s", err, lastPath)
 	}
 }

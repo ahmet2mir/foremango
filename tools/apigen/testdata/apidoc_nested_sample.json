@@ -1,0 +1,70 @@
+{
+  "docs": {
+    "resources": {
+      "hosts": {
+        "full_description": "Minimal host-shaped fixture for exercising nested param generation (compute_attributes, interfaces_attributes) and the _id/_ids/boolean-name type-inference fallbacks.",
+        "methods": [
+          {
+            "name": "index",
+            "apis": [
+              {"api_url": "/api/hosts", "http_method": "GET", "short_description": "List all hosts"}
+            ],
+            "params": [
+              {"name": "search", "required": false, "description": "Search filter", "validator": "", "params": []}
+            ]
+          },
+          {
+            "name": "show",
+            "apis": [
+              {"api_url": "/api/hosts/:id", "http_method": "GET", "short_description": "Show a host"}
+            ],
+            "params": [
+              {"name": "id", "required": true, "description": "Host ID", "validator": "Must be Integer", "params": []}
+            ]
+          },
+          {
+            "name": "create",
+            "apis": [
+              {"api_url": "/api/hosts", "http_method": "POST", "short_description": "Create a host"}
+            ],
+            "params": [
+              {
+                "name": "host", "required": true, "description": "", "validator": "",
+                "params": [
+                  {"name": "name", "required": true, "description": "Host name", "validator": "", "params": []},
+                  {"name": "medium_id", "required": false, "description": "Medium ID", "validator": "", "params": []},
+                  {"name": "enabled", "required": false, "description": "Include this host within reporting", "validator": "Must be one of: true, false", "params": []},
+                  {"name": "managed", "required": false, "description": "Whether this host is managed", "validator": "", "params": []},
+                  {"name": "config_group_ids", "required": false, "description": "Config group IDs", "validator": "", "params": []},
+                  {
+                    "name": "compute_attributes", "required": false, "description": "Additional compute resource specific attributes.", "validator": "",
+                    "params": [
+                      {"name": "cpus", "required": false, "description": "Number of CPUs", "validator": "Must be Integer", "params": []},
+                      {"name": "memory_mb", "required": false, "description": "Memory in MB", "validator": "Must be Integer", "params": []},
+                      {"name": "cluster", "required": false, "description": "Compute cluster", "validator": "", "params": []}
+                    ]
+                  },
+                  {
+                    "name": "interfaces_attributes", "required": false, "description": "Array of Hash - Host's network interfaces.", "validator": "",
+                    "params": [
+                      {"name": "name", "required": false, "description": "Interface name", "validator": "", "params": []},
+                      {"name": "subnet_id", "required": false, "description": "Subnet ID", "validator": "", "params": []},
+                      {"name": "managed", "required": false, "description": "Whether this interface is managed", "validator": "", "params": []},
+                      {
+                        "name": "compute_attributes", "required": false, "description": "Interface-specific compute attributes", "validator": "",
+                        "params": [
+                          {"name": "type", "required": false, "description": "NIC type", "validator": "", "params": []},
+                          {"name": "network", "required": false, "description": "Network identifier", "validator": "", "params": []}
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

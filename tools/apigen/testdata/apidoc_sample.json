@@ -1,0 +1,109 @@
+{
+  "docs": {
+    "resources": {
+      "architectures": {
+        "full_description": "Already hand-implemented in pkg/foreman/architecture.go - the generator should skip this one.",
+        "methods": [
+          {
+            "name": "index",
+            "apis": [
+              {"api_url": "/api/architectures", "http_method": "GET", "short_description": "List all architectures"}
+            ],
+            "params": [
+              {"name": "search", "required": false, "description": "Search filter", "validator": "", "params": []}
+            ]
+          },
+          {
+            "name": "show",
+            "apis": [
+              {"api_url": "/api/architectures/:id", "http_method": "GET", "short_description": "Show an architecture"}
+            ],
+            "params": [
+              {"name": "id", "required": true, "description": "Architecture ID", "validator": "Must be Integer", "params": []}
+            ]
+          },
+          {
+            "name": "create",
+            "apis": [
+              {"api_url": "/api/architectures", "http_method": "POST", "short_description": "Create an architecture"}
+            ],
+            "params": [
+              {
+                "name": "architecture", "required": true, "description": "", "validator": "",
+                "params": [
+                  {"name": "name", "required": true, "description": "Architecture name", "validator": "", "params": []}
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "bookmarks": {
+        "full_description": "Bookmarks store a named search for later use. Not yet implemented in foremango.",
+        "methods": [
+          {
+            "name": "index",
+            "apis": [
+              {"api_url": "/api/bookmarks", "http_method": "GET", "short_description": "List all bookmarks"}
+            ],
+            "params": [
+              {"name": "search", "required": false, "description": "Search filter", "validator": "", "params": []}
+            ]
+          },
+          {
+            "name": "show",
+            "apis": [
+              {"api_url": "/api/bookmarks/:id", "http_method": "GET", "short_description": "Show a bookmark"}
+            ],
+            "params": [
+              {"name": "id", "required": true, "description": "Bookmark ID", "validator": "Must be Integer", "params": []}
+            ]
+          },
+          {
+            "name": "create",
+            "apis": [
+              {"api_url": "/api/bookmarks", "http_method": "POST", "short_description": "Create a bookmark"}
+            ],
+            "params": [
+              {
+                "name": "bookmark", "required": true, "description": "", "validator": "",
+                "params": [
+                  {"name": "name", "required": true, "description": "Bookmark name", "validator": "", "params": []},
+                  {"name": "controller", "required": true, "description": "Controller this bookmark applies to", "validator": "", "params": []},
+                  {"name": "query", "required": true, "description": "The saved search string", "validator": "", "params": []},
+                  {"name": "public", "required": false, "description": "Whether this bookmark is shared with other users", "validator": "Must be one of: true, false", "params": []}
+                ]
+              }
+            ]
+          },
+          {
+            "name": "update",
+            "apis": [
+              {"api_url": "/api/bookmarks/:id", "http_method": "PUT", "short_description": "Update a bookmark"}
+            ],
+            "params": [
+              {"name": "id", "required": true, "description": "Bookmark ID", "validator": "Must be Integer", "params": []},
+              {
+                "name": "bookmark", "required": true, "description": "", "validator": "",
+                "params": [
+                  {"name": "name", "required": false, "description": "Bookmark name", "validator": "", "params": []},
+                  {"name": "query", "required": false, "description": "The saved search string", "validator": "", "params": []},
+                  {"name": "public", "required": false, "description": "Whether this bookmark is shared with other users", "validator": "Must be one of: true, false", "params": []}
+                ]
+              }
+            ]
+          },
+          {
+            "name": "destroy",
+            "apis": [
+              {"api_url": "/api/bookmarks/:id", "http_method": "DELETE", "short_description": "Delete a bookmark"}
+            ],
+            "params": [
+              {"name": "id", "required": true, "description": "Bookmark ID", "validator": "Must be Integer", "params": []}
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

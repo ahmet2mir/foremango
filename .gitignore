@@ -1,1 +1,30 @@
-coverage.html
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+/dist/
+/bin/
+# `go build ./tools/apigen` at the repo root (anchored: tools/apigen/ is source)
+/apigen
+
+# Coverage output
+*.out
+/coverage*.html
+
+# Foreman apidoc fetched for `go generate` (from a real server: keep local)
+/apidoc/
+
+# Local-only material: real hosts, credentials, scratch work
+/trash/
+/tmp/
+/_local/
+test-local-*.go
+.env
+.env.*
+
+# Local Go workspace
+go.work
+go.work.sum

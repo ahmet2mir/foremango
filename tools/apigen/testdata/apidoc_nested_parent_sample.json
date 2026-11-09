@@ -1,0 +1,56 @@
+{
+  "docs": {
+    "resources": {
+      "parameters": {
+        "full_description": "Nested parameters for a host. Fixture for exercising the nested-parent-resource endpoint fix (the real bug: /hosts/:host_id/parameters was truncated to just /hosts).",
+        "methods": [
+          {
+            "name": "index",
+            "apis": [
+              {"api_url": "/api/hosts/:host_id/parameters", "http_method": "GET", "short_description": "List all parameters for a host"}
+            ],
+            "params": [
+              {"name": "host_id", "required": true, "description": "Host ID", "validator": "", "params": []}
+            ]
+          },
+          {
+            "name": "show",
+            "apis": [
+              {"api_url": "/api/hosts/:host_id/parameters/:id", "http_method": "GET", "short_description": "Show a parameter"}
+            ],
+            "params": [
+              {"name": "host_id", "required": true, "description": "Host ID", "validator": "", "params": []},
+              {"name": "id", "required": true, "description": "Parameter ID", "validator": "Must be Integer", "params": []}
+            ]
+          },
+          {
+            "name": "create",
+            "apis": [
+              {"api_url": "/api/hosts/:host_id/parameters", "http_method": "POST", "short_description": "Create a parameter for a host"}
+            ],
+            "params": [
+              {"name": "host_id", "required": true, "description": "Host ID", "validator": "", "params": []},
+              {
+                "name": "parameter", "required": true, "description": "", "validator": "",
+                "params": [
+                  {"name": "name", "required": true, "description": "Parameter name", "validator": "", "params": []},
+                  {"name": "value", "required": true, "description": "Parameter value", "validator": "", "params": []}
+                ]
+              }
+            ]
+          },
+          {
+            "name": "destroy",
+            "apis": [
+              {"api_url": "/api/hosts/:host_id/parameters/:id", "http_method": "DELETE", "short_description": "Delete a parameter"}
+            ],
+            "params": [
+              {"name": "host_id", "required": true, "description": "Host ID", "validator": "", "params": []},
+              {"name": "id", "required": true, "description": "Parameter ID", "validator": "Must be Integer", "params": []}
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

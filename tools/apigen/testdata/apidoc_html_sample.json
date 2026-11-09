@@ -1,0 +1,37 @@
+{
+  "docs": {
+    "resources": {
+      "auth_source_externals": {
+        "full_description": "\n<p>External authentication source, e.g. LDAP.</p>\n",
+        "methods": [
+          {
+            "name": "show",
+            "apis": [
+              {"api_url": "/api/auth_source_externals/:id", "http_method": "GET", "short_description": "Show an auth source"}
+            ],
+            "params": [
+              {"name": "id", "required": true, "description": "ID", "validator": "Must be Integer", "params": []}
+            ]
+          },
+          {
+            "name": "update",
+            "apis": [
+              {"api_url": "/api/auth_source_externals/:id", "http_method": "PUT", "short_description": "Update an auth source"}
+            ],
+            "params": [
+              {"name": "id", "required": true, "description": "ID", "validator": "Must be Integer", "params": []},
+              {
+                "name": "auth_source_external", "required": true, "description": "", "validator": "",
+                "params": [
+                  {"name": "location_ids", "required": false, "description": "\n<p>REPLACE locations with given ids</p>\n", "validator": "", "params": []},
+                  {"name": "organization_ids", "required": false, "description": "\n<p>REPLACE organizations with given ids.</p>\n", "validator": "", "params": []},
+                  {"name": "2fa_enabled", "required": false, "description": "Two-factor auth enabled", "validator": "Must be one of: true, false", "params": []}
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}
