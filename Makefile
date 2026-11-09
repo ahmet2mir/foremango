@@ -1,5 +1,10 @@
-TEST?=$$(go list ./...)
-GOFMT_FILES?=$$(find . -name '*.go' | grep -vE './_local')
+# Local-only, git-ignored directories (see .gitignore): never built, tested,
+# formatted or scanned.
+LOCAL_DIRS := _local trash tmp
+LOCAL_RE := /($(subst $() ,|,$(LOCAL_DIRS)))(/|$$)
+
+TEST?=$$(go list ./... | grep -vE '$(LOCAL_RE)')
+GOFMT_FILES?=$$(find . -name '*.go' | grep -vE '^\.$(LOCAL_RE)')
 GO_CMD ?= go
 SHELL := /bin/bash
 
@@ -24,7 +29,7 @@ lint:
 	golangci-lint run
 
 security:
-	gosec -exclude-dir _local -quiet ./...
+	gosec $(addprefix -exclude-dir ,$(LOCAL_DIRS)) -quiet ./...
 
 test:
 	$(GO_CMD) test -v -timeout 60s -coverprofile=cover.out -cover $(TEST)

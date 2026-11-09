@@ -1,30 +1,35 @@
-// Command host_with_parameters shows how to create a Foreman host and
-// associate parameters with it, both ways the library supports:
+// Command host_with_parameters creates a Foreman host and associates
+// parameters with it, both ways the API allows:
 //
-//   - inline, at creation time, via ForemanHost.HostParameters
-//     ("host_parameters_attributes" on the wire) - the two parameters set
-//     on the host below, "environment" and "role".
-//   - afterwards, as a separate call, via the dedicated Parameter resource
-//     (CreateParameter) - the "owner" parameter added once the host
-//     already exists.
+//   - inline, at creation time, via ForemanHost.HostParametersAttributes
+//     ("host_parameters_attributes" on the wire): "environment" and "role"
+//     below.
+//   - afterwards, through the host's parameters endpoint
+//     (CreateParameter): "owner" below, added once the host exists.
 //
-// Every value here - the server URL, credentials, and the host's own
-// fields - is a placeholder. Point ServerURL/Username/Password at a real
-// Foreman instance (and use IDs that actually exist there for
-// DomainId/OperatingSystemId/HostgroupId) to run this for real; as
-// written, it's meant to be read as a reference, not executed verbatim.
+// It then lists the host's parameters with QueryParameter.
+//
+// The server and credentials come from the environment:
+//
+//	FOREMAN_URL=https://foreman.example.com \
+//	FOREMAN_USERNAME=admin FOREMAN_PASSWORD=... \
+//	go run ./examples/host_with_parameters
+//
+// The host's IDs (domain, operating system, host group) are placeholders:
+// use IDs that exist on your Foreman to run it for real.
 package main
 
 import (
 	"context"
 	"log"
 	"net/url"
+	"os"
 
 	"github.com/ahmet2mir/foremango/pkg/foreman"
 )
 
 func main() {
-	serverURL, err := url.Parse("https://foreman.example.com")
+	serverURL, err := url.Parse(getenv("FOREMAN_URL", "https://foreman.example.com"))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -32,51 +37,59 @@ func main() {
 	client := foreman.NewClient(
 		foreman.Server{URL: *serverURL},
 		foreman.ClientCredentials{
-			Username: "admin",
-			Password: "changeme",
+			Username: getenv("FOREMAN_USERNAME", "admin"),
+			Password: os.Getenv("FOREMAN_PASSWORD"),
 		},
 		foreman.ClientConfig{
-			// Foreman < 1.21 with organizations/locations disabled: use < 0.
-			LocationID:     -1,
-			OrganizationID: -1,
+			// Set these (> 0) to create the host in a location and
+			// organization; left at 0, none is sent.
+			LocationID:     0,
+			OrganizationID: 0,
 		},
 	)
 
 	ctx := context.Background()
 
-	// 1. Create the host, with a couple of parameters attached right away.
+	// 1. Create the host, with two parameters attached right away.
 	host, err := client.CreateHost(ctx, &foreman.ForemanHost{
 		ForemanObject:     foreman.ForemanObject{Name: "web01.example.com"},
-		DomainId:          intPtr(1),
-		OperatingSystemId: intPtr(1),
-		HostgroupId:       intPtr(1),
+		DomainId:          1,
+		OperatingsystemId: 1,
+		HostgroupId:       1,
 		Managed:           true,
-		HostParameters: []foreman.ForemanKVParameter{
+		HostParametersAttributes: []foreman.HostHostParametersAttributes{
 			{Name: "environment", Value: "staging"},
 			{Name: "role", Value: "webserver"},
 		},
-	}, 1 /* retryCount */)
+	})
 	if err != nil {
 		log.Fatalf("CreateHost: %v", err)
 	}
 	log.Printf("created host %d: %s", host.Id, host.Name)
 
-	// 2. Associate one more parameter after the fact, via the dedicated
-	// Parameter resource instead of resending the whole host.
-	param, err := client.CreateParameter(ctx, &foreman.ForemanParameter{
-		HostID: host.Id,
-		Parameter: foreman.ForemanKVParameter{
-			Name:  "owner",
-			Value: "platform-team",
-		},
+	// 2. Add one more parameter afterwards, without resending the host.
+	param, err := client.CreateParameter(ctx, host.Id, &foreman.ForemanParameter{
+		ForemanObject: foreman.ForemanObject{Name: "owner"},
+		Value:         "platform-team",
 	})
 	if err != nil {
 		log.Fatalf("CreateParameter: %v", err)
 	}
-	log.Printf("associated parameter %q=%q with host %d", param.Parameter.Name, param.Parameter.Value, host.Id)
+	log.Printf("added parameter %d %s=%s", param.Id, param.Name, param.Value)
+
+	// 3. List the host's parameters (an empty search lists all of them).
+	params, err := client.QueryParameter(ctx, host.Id, "")
+	if err != nil {
+		log.Fatalf("QueryParameter: %v", err)
+	}
+	for _, p := range params.Results {
+		log.Printf("host %d parameter %s=%s", host.Id, p.Name, p.Value)
+	}
 }
 
-// intPtr is a small helper since ForemanHost's relational fields
-// (DomainId, OperatingSystemId, HostgroupId, ...) are *int - nil meaning
-// "don't set this" - so a literal can't be used directly.
-func intPtr(i int) *int { return &i }
+func getenv(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
